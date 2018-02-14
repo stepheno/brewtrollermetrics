@@ -10,6 +10,7 @@ import (
 	"time"
 	"log"
 	"strconv"
+	"errors"
 )
 
 type Vessel int
@@ -31,23 +32,22 @@ type Brewtroller struct {
 }
 
 func (bt *Brewtroller) brewtrollerStatus() {
-	resp, err := http.Get(bt.Hostname.String()+ "?a")
-	if (err != nil) {
-		fmt.Errorf("fuck")
+	responseFields, err := makeRequest(bt, "a")
+	if err != nil {
+		print(err)
 	}
-	words := parseBody(resp, err)
-	fmt.Println(words)
+	fmt.Println(responseFields)
 
 }
 
 func (bt *Brewtroller) getTargetVolume(vessel Vessel) *client.Point {
-	resp, err := http.Get(fmt.Sprintf("%s?|%d",bt.Hostname.String(), vessel))
+	responseFields, err := makeRequest(bt, fmt.Sprintf("|%d", vessel))
 	if (err != nil) {
-		fmt.Errorf("fuck")
+		log.Println("Error making target volume request")
+		return nil
 	}
-	words := parseBody(resp, err)
 
-	retVal, _ := strconv.Atoi(strings.Trim(words[1], "\""))
+	retVal, _ := strconv.Atoi(responseFields[1])
 
 	tags := map[string]string{"vessel": vesselName[vessel]}
 	fields := map[string]interface{}{
@@ -63,9 +63,36 @@ func (bt *Brewtroller) getTargetVolume(vessel Vessel) *client.Point {
 	return pt
 
 }
-func parseBody(resp *http.Response, err error) []string {
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+
+func makeRequest(bt *Brewtroller, requestParams string) ([]string, error) {
+	response, err := http.Get(fmt.Sprintf("%s?%s",bt.Hostname.String(), requestParams))
+	if (err != nil) {
+		return nil, err
+	}
+
+	if response.StatusCode != 200 {
+		return nil, errors.New(fmt.Sprintf("Non 200 response received for request %s", response.Request))
+	}
+
+	responseBody, err := parseBody(response)
+	if (err != nil) {
+		return nil, err
+	}
+
+	return responseBody, nil
+}
+
+func parseBody(response *http.Response) ([]string, error) {
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if (err != nil) {
+		return nil, err
+	}
+
 	words := strings.Split(string(body)[1:], ",")
-	return words
+	for i := range words {
+		words[i] = strings.Trim(words[i], "\"")
+	}
+
+	return words, nil
 }
